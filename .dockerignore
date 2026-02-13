@@ -1,0 +1,52 @@
+# Ignore build artifacts
+target/
+*.jar
+*.war
+*.ear
+
+# Ignore IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore Git
+.git/
+.gitignore
+.gitattributes
+
+# Ignore CI/CD
+.github/
+
+# Ignore documentation
+*.md
+docs/
+
+# Ignore test files
+**/src/test/
+
+# Ignore logs
+logs/
+*.log
+
+# Ignore temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Ignore infrastructure
+infrastructure/
+
+# Keep necessary files for build
+!pom.xml
+!**/src/main/
+

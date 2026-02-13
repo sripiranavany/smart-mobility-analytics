@@ -1,0 +1,259 @@
+version: '3.8'
+
+services:
+  # Infrastructure Services
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - smart-mobility-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - smart-mobility-network
+
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+      - "7000:7000"
+    environment:
+      CASSANDRA_CLUSTER_NAME: "Smart Mobility Cluster"
+      CASSANDRA_DC: "datacenter1"
+      CASSANDRA_ENDPOINT_SNITCH: "GossipingPropertyFileSnitch"
+      MAX_HEAP_SIZE: "512M"
+      HEAP_NEWSIZE: "128M"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - smart-mobility-network
+
+  neo4j:
+    image: neo4j:5.14
+    container_name: neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_dbms_memory_pagecache_size: 512M
+      NEO4J_dbms_memory_heap_initial__size: 512M
+      NEO4J_dbms_memory_heap_max__size: 1G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - smart-mobility-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - smart-mobility-network
+
+  # HertzBeat Monitoring Stack
+
+  # PostgreSQL for HertzBeat metadata storage
+  hertzbeat-db:
+    image: postgres:17-alpine
+    container_name: hertzbeat-db
+    environment:
+      POSTGRES_USER: hertzbeat
+      POSTGRES_PASSWORD: hertzbeat
+      POSTGRES_DB: hertzbeat
+    volumes:
+      - hertzbeat-db-data:/var/lib/postgresql/data
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hertzbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # VictoriaMetrics for time-series metrics storage
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.100.0
+    container_name: victoria-metrics
+    volumes:
+      - victoria-metrics-data:/storage
+    command:
+      - '-storageDataPath=/storage'
+      - '-httpListenAddr=:8428'
+      - '-retentionPeriod=7d'
+    ports:
+      - "8428:8428"
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+
+  # HertzBeat Manager & Collector
+  hertzbeat:
+    image: apache/hertzbeat:latest
+    container_name: hertzbeat
+    ports:
+      - "1157:1157"  # Web UI
+      - "1158:1158"  # Cluster port
+    environment:
+      LANG: en_US.UTF-8
+      TZ: UTC
+      # PostgreSQL database configuration
+      SPRING_DATASOURCE_URL: jdbc:postgresql://hertzbeat-db:5432/hertzbeat?useUnicode=true&characterEncoding=utf-8&useSSL=false
+      SPRING_DATASOURCE_USERNAME: hertzbeat
+      SPRING_DATASOURCE_PASSWORD: hertzbeat
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      # JPA configuration - auto-create schema
+      SPRING_JPA_DATABASE_PLATFORM: org.eclipse.persistence.platform.database.PostgreSQLPlatform
+      SPRING_JPA_PROPERTIES_ECLIPSELINK_DDL-GENERATION: create-or-extend-tables
+      SPRING_JPA_PROPERTIES_ECLIPSELINK_DDL-GENERATION_OUTPUT-MODE: database
+      # VictoriaMetrics configuration
+      WAREHOUSE_STORE_VICTORIA_METRICS_ENABLED: "true"
+      WAREHOUSE_STORE_VICTORIA_METRICS_URL: http://victoria-metrics:8428
+      # Disable other storage types
+      WAREHOUSE_STORE_JPA_ENABLED: "false"
+      WAREHOUSE_STORE_MEMORY_ENABLED: "false"
+    volumes:
+      - hertzbeat-data:/opt/hertzbeat/data
+      - hertzbeat-logs:/opt/hertzbeat/logs
+    depends_on:
+      hertzbeat-db:
+        condition: service_healthy
+      victoria-metrics:
+        condition: service_started
+      prometheus:
+        condition: service_started
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:1157 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Application Services
+
+  event-generator:
+    build:
+      context: .
+      dockerfile: event-generator/Dockerfile
+    container_name: event-generator
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - kafka
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+
+  analytics-engine:
+    build:
+      context: .
+      dockerfile: analytics-engine/Dockerfile
+    container_name: analytics-engine
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_CASSANDRA_CONTACT_POINTS: cassandra
+      SPRING_DATA_CASSANDRA_PORT: 9042
+      SPRING_DATA_CASSANDRA_LOCAL_DATACENTER: datacenter1
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - kafka
+      - cassandra
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_DATACENTER: datacenter1
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: password
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    networks:
+      - smart-mobility-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+networks:
+  smart-mobility-network:
+    driver: bridge
+
+volumes:
+  cassandra-data:
+  neo4j-data:
+  neo4j-logs:
+  prometheus-data:
+  hertzbeat-db-data:
+  victoria-metrics-data:
+  hertzbeat-data:
+  hertzbeat-logs:
