@@ -78,7 +78,10 @@ jobs:
         ports:
           - 8428:8428
         options: >-
-          --health-cmd="wget --spider --quiet http://localhost:8428/metrics || exit 1" --health-interval=10s --health-timeout=5s --health-retries=5
+          --health-cmd="wget --spider --quiet http://localhost:8428/metrics || exit 1"
+          --health-interval=10s
+          --health-timeout=10s
+          --health-retries=15
       hertzbeat:
         image: apache/hertzbeat:latest
         ports:
@@ -92,7 +95,10 @@ jobs:
           warehouse.store.type: victoria-metrics
           warehouse.store.victoria-metrics.url: http://victoria-metrics:8428
         options: >-
-          --health-cmd="wget --spider --quiet http://localhost:1157 || exit 1" --health-interval=15s --health-timeout=10s --health-retries=10
+          --health-cmd="wget --spider --quiet http://localhost:1157/ || exit 1"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=15
 
     strategy:
       matrix:
