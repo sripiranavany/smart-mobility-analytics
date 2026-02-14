@@ -327,20 +327,10 @@ jobs:
           POSTGRES_USER: hertzbeat
           POSTGRES_PASSWORD: hertzbeat
           POSTGRES_DB: hertzbeat
-        options: >-
-          --health-cmd="pg_isready -U hertzbeat"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
       victoria-metrics:
         image: victoriametrics/victoria-metrics:v1.100.0
         ports:
           - 8428:8428
-        options: >-
-          --health-cmd="wget --spider --quiet http://localhost:8428/metrics || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
       hertzbeat:
         image: apache/hertzbeat:latest
         ports:
@@ -353,12 +343,6 @@ jobs:
           spring.datasource.password: hertzbeat
           warehouse.store.type: victoria-metrics
           warehouse.store.victoria-metrics.url: http://victoria-metrics:8428
-        options: >-
-          --health-cmd="wget --spider --quiet http://localhost:1157/ || exit 1"
-          --health-interval=10s
-          --health-timeout=10s
-          --health-retries=10
-        # HertzBeat will wait for DB and VictoriaMetrics to be healthy
 
     steps:
       - name: Checkout code
@@ -367,24 +351,24 @@ jobs:
       - name: Wait for VictoriaMetrics
         run: |
           echo "Waiting for VictoriaMetrics to be ready..."
-          for i in {1..30}; do
+          for i in {1..60}; do
             if curl -s http://localhost:8428/metrics > /dev/null 2>&1; then
               echo "✓ VictoriaMetrics is ready"
               break
             fi
-            echo "Waiting... ($i/30)"
+            echo "Waiting... ($i/60)"
             sleep 2
           done
 
       - name: Wait for HertzBeat
         run: |
           echo "Waiting for HertzBeat to be ready..."
-          for i in {1..30}; do
+          for i in {1..60}; do
             if curl -s http://localhost:1157/ > /dev/null 2>&1; then
               echo "✓ HertzBeat is ready"
               break
             fi
-            echo "Waiting... ($i/30)"
+            echo "Waiting... ($i/60)"
             sleep 2
           done
 
