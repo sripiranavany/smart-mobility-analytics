@@ -22,6 +22,77 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    services:
+      zookeeper:
+        image: confluentinc/cp-zookeeper:7.5.0
+        ports:
+          - 2181:2181
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+      kafka:
+        image: confluentinc/cp-kafka:7.5.0
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_BROKER_ID: 1
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      cassandra:
+        image: cassandra:4.1
+        ports:
+          - 9042:9042
+        env:
+          CASSANDRA_CLUSTER_NAME: "Smart Mobility Cluster"
+          CASSANDRA_DC: "datacenter1"
+          CASSANDRA_ENDPOINT_SNITCH: "GossipingPropertyFileSnitch"
+          MAX_HEAP_SIZE: "512M"
+          HEAP_NEWSIZE: "128M"
+      neo4j:
+        image: neo4j:5.14
+        ports:
+          - 7474:7474
+          - 7687:7687
+        env:
+          NEO4J_AUTH: neo4j/password
+          NEO4J_dbms_memory_pagecache_size: 512M
+          NEO4J_dbms_memory_heap_initial__size: 512M
+          NEO4J_dbms_memory_heap_max__size: 1G
+      prometheus:
+        image: prom/prometheus:v2.52.0
+        ports:
+          - 9090:9090
+        options: >-
+          --health-cmd="wget --spider --quiet http://localhost:9090/-/healthy || exit 1" --health-interval=10s --health-timeout=5s --health-retries=5
+      hertzbeat-db:
+        image: postgres:17-alpine
+        ports:
+          - 5442:5432
+        env:
+          POSTGRES_USER: hertzbeat
+          POSTGRES_PASSWORD: hertzbeat
+          POSTGRES_DB: hertzbeat
+      victoria-metrics:
+        image: victoriametrics/victoria-metrics:v1.100.0
+        ports:
+          - 8428:8428
+        options: >-
+          --health-cmd="wget --spider --quiet http://localhost:8428/metrics || exit 1" --health-interval=10s --health-timeout=5s --health-retries=5
+      hertzbeat:
+        image: apache/hertzbeat:latest
+        ports:
+          - 1157:1157
+          - 1158:1158
+        env:
+          LANG: zh_CN.UTF-8
+          spring.datasource.url: jdbc:postgresql://hertzbeat-db:5432/hertzbeat?useUnicode=true&characterEncoding=utf-8
+          spring.datasource.username: hertzbeat
+          spring.datasource.password: hertzbeat
+          warehouse.store.type: victoria-metrics
+          warehouse.store.victoria-metrics.url: http://victoria-metrics:8428
+        options: >-
+          --health-cmd="wget --spider --quiet http://localhost:1157 || exit 1" --health-interval=15s --health-timeout=10s --health-retries=10
 
     strategy:
       matrix:
