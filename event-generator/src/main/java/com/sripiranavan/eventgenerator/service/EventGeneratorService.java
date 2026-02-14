@@ -29,6 +29,12 @@ public class EventGeneratorService implements CommandLineRunner {
     @Value("${event.generation.interval:1000}")
     private long interval;
 
+    @Value("${event.generation.enabled:true}")
+    private boolean enabled;
+
+    @Value("${event.generation.max-events:0}")
+    private int maxEvents;
+
     private final Random random = new Random();
     private volatile boolean running = true;
 
@@ -38,14 +44,33 @@ public class EventGeneratorService implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        if (!enabled) {
+            log.info("Event generation is DISABLED (event.generation.enabled=false)");
+            return;
+        }
+
         log.info("Starting Event Generator Service...");
         log.info("Publishing to topic: {}", topic);
         log.info("Generation interval: {}ms", interval);
 
+        if (maxEvents > 0) {
+            log.info("Will generate {} events then exit (test mode)", maxEvents);
+        } else {
+            log.info("Event Generator is now running and generating events continuously...");
+        }
+
+        int eventCount = 0;
         // Keep the application running
-        while (running) {
+        while (running && (maxEvents == 0 || eventCount < maxEvents)) {
             try {
                 generateAndSendEvent();
+                eventCount++;
+
+                // Log summary every 10 events
+                if (eventCount % 10 == 0) {
+                    log.info("Generated {} events so far...", eventCount);
+                }
+
                 TimeUnit.MILLISECONDS.sleep(interval);
             } catch (InterruptedException e) {
                 log.warn("Event generator interrupted", e);
@@ -56,7 +81,11 @@ public class EventGeneratorService implements CommandLineRunner {
             }
         }
 
-        log.info("Event Generator Service stopped");
+        if (maxEvents > 0) {
+            log.info("Event Generator completed - generated {} events (test mode)", eventCount);
+        } else {
+            log.info("Event Generator Service stopped after generating {} events", eventCount);
+        }
     }
 
     private void generateAndSendEvent() {
@@ -69,8 +98,10 @@ public class EventGeneratorService implements CommandLineRunner {
         event.put("speed", random.nextDouble() * 120);
         event.put("eventType", getRandomEventType());
 
-        kafkaTemplate.send(topic, event.get("vehicleId").toString(), event);
-        log.debug("Generated event: {}", event.get("eventId"));
+        String vehicleId = event.get("vehicleId").toString();
+        kafkaTemplate.send(topic, vehicleId, event);
+        log.info("Generated and sent event: {} for vehicle: {} (type: {})",
+                 event.get("eventId"), vehicleId, event.get("eventType"));
     }
 
     private String getRandomEventType() {

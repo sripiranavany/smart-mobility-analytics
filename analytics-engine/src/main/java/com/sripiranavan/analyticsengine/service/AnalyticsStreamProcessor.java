@@ -27,11 +27,20 @@ public class AnalyticsStreamProcessor implements CommandLineRunner {
     @Value("${event.generation.topic:mobility-events}")
     private String inputTopic;
 
+    @Value("${analytics.pipeline.enabled:true}")
+    private boolean enabled;
+
     @Override
     public void run(String... args) throws Exception {
-        log.info("Starting Analytics Stream Processor...");
+        if (!enabled) {
+            log.info("Analytics pipeline is DISABLED (analytics.pipeline.enabled=false)");
+            return;
+        }
+
+        log.info("=== Analytics Stream Processor Starting ===");
         log.info("Kafka Bootstrap Servers: {}", kafkaBootstrapServers);
         log.info("Input Topic: {}", inputTopic);
+        log.info("Initializing Apache Beam pipeline...");
 
         // Create Apache Beam pipeline
         Pipeline pipeline = Pipeline.create(PipelineOptionsFactory.create());
@@ -46,9 +55,13 @@ public class AnalyticsStreamProcessor implements CommandLineRunner {
                 .withoutMetadata()
         )
         .apply("ProcessEvents", ParDo.of(new DoFn<KV<String, String>, String>() {
+            private int processedCount = 0;
+
             @ProcessElement
             public void processElement(@Element KV<String, String> element, OutputReceiver<String> out) {
-                log.info("Processing event: {} -> {}", element.getKey(), element.getValue());
+                processedCount++;
+                log.info("[Event #{}] Processing: vehicleId={}, data={}",
+                         processedCount, element.getKey(), element.getValue());
                 // TODO: Add your analytics logic here
                 // - Parse JSON
                 // - Perform aggregations
@@ -57,8 +70,14 @@ public class AnalyticsStreamProcessor implements CommandLineRunner {
             }
         }));
 
-        log.info("Starting Apache Beam pipeline...");
+        log.info("=== Apache Beam pipeline configured successfully ===");
+        log.info("Starting pipeline execution (will block and listen for Kafka messages)...");
+        log.info("Analytics Engine is now running and waiting for events from topic: {}", inputTopic);
+
+        // This will block and keep the application running
         pipeline.run().waitUntilFinish();
+
+        log.info("Analytics Stream Processor stopped");
     }
 }
 
