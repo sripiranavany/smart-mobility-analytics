@@ -21,6 +21,7 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     strategy:
       matrix:
@@ -49,7 +50,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Build with Maven
-        run: mvn clean install -B -V --no-transfer-progress
+        run: mvn clean install -B -V --no-transfer-progress -Dsurefire.timeout=600
 
       - name: Generate Test Report
         if: always()
@@ -84,6 +85,7 @@ jobs:
     name: Code Quality Analysis
     runs-on: ubuntu-latest
     needs: build-and-test
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -113,6 +115,7 @@ jobs:
     name: Dependency Security Check
     runs-on: ubuntu-latest
     needs: build-and-test
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
@@ -137,6 +140,7 @@ jobs:
     name: Build Module - ${{ matrix.module }}
     runs-on: ubuntu-latest
     needs: build-and-test
+    timeout-minutes: 30
 
     strategy:
       matrix:
@@ -167,16 +171,17 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Build ${{ matrix.module }}
-        run: mvn clean install -pl ${{ matrix.module }} -am -B --no-transfer-progress
+        run: mvn clean install -pl ${{ matrix.module }} -am -B --no-transfer-progress -Dsurefire.timeout=600
 
       - name: Test ${{ matrix.module }}
-        run: mvn test -pl ${{ matrix.module }} -B --no-transfer-progress
+        run: mvn test -pl ${{ matrix.module }} -B --no-transfer-progress -Dsurefire.timeout=600
 
   docker-build:
     name: Docker Build - ${{ matrix.service }}
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    timeout-minutes: 30
 
     strategy:
       matrix:
@@ -237,6 +242,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-test, code-quality, module-build]
     if: always()
+    timeout-minutes: 10
 
     steps:
       - name: Check build status
